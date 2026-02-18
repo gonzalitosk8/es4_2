@@ -1,0 +1,54 @@
+{
+  "engine_name": "Honda K24 VTEC",
+  "sound_volume": 0.92,
+  "crankshaft": { "mass_kg": 18.5, "radius_m": 0.029 },
+  "flywheel": { "mass_kg": 6.8, "radius_m": 0.165 },
+  "limiter_cutoff_r_per_s": 1830.0,      // ~9200 RPM (típico VTEC)
+  "limiter_relaxed_r_per_s": 80.0,
+  "starter": { "rated_torque_n_m": 65.0, "no_load_r_per_s": 650.0, "radius_m": 0.014 },
+  "piston": {
+    "diameter_m": 0.087,                 // 87 mm bore (K24 real)
+    "crank_throw_m": 0.040,
+    "connecting_rod_m": 0.138,
+    "connecting_rod_mass_kg": 0.52,
+    "compression_height_m": 0.022
+  },
+  "chamber_volume_m3": 2.8e-4,
+  "throttle_volume_m3": 3.2e-4,
+  "irunner_volume_m3": 4.5e-4,           // intake runners más cortos y resonantes
+  "injector_volume_m3": 5.5e-6,
+  "erunner_volume_m3": 1.1e-4,
+  "eplenum_volume_m3": 2.2e-4,
+  "exhaust_volume_m3": 2.8e-4,
+  "max_flow_area_m2": 3.8e-3,            // +35% flow cuando VTEC entra (simula el lift)
+  "nodes": [
+    { "id": 0, "type": "source", "connections": [1], "initial_pressure_pa": 101325, "initial_temp_k": 293 },
+    { "id": 1, "type": "throttle", "connections": [2,6,10,14], "volume_m3": 3.2e-4 },
+
+    { "id": 2, "type": "irunner", "piston_theta_r": 0.0, "connections": [4], "volume_m3": 4.5e-4 },
+    { "id": 3, "type": "injector", "parent": 2, "connections": [4], "volume_m3": 5.5e-6 },
+    { "id": 4, "type": "piston", "piston_theta_r": 0.0, "connections": [5], "volume_m3": 2.8e-4 },
+    { "id": 5, "type": "erunner", "connections": [18], "volume_m3": 1.1e-4 },
+
+    { "id": 6, "type": "irunner", "piston_theta_r": 3.14159265359, "connections": [8], "volume_m3": 4.5e-4 },
+    { "id": 7, "type": "injector", "parent": 6, "connections": [8], "volume_m3": 5.5e-6 },
+    { "id": 8, "type": "piston", "piston_theta_r": 3.14159265359, "connections": [9], "volume_m3": 2.8e-4 },
+    { "id": 9, "type": "erunner", "connections": [20], "volume_m3": 1.1e-4 },
+
+    { "id": 10, "type": "irunner", "piston_theta_r": 6.28318530718, "connections": [12], "volume_m3": 4.5e-4 },
+    { "id": 11, "type": "injector", "parent": 10, "connections": [12], "volume_m3": 5.5e-6 },
+    { "id": 12, "type": "piston", "piston_theta_r": 6.28318530718, "connections": [13], "volume_m3": 2.8e-4 },
+    { "id": 13, "type": "erunner", "connections": [18], "volume_m3": 1.1e-4 },
+
+    { "id": 14, "type": "irunner", "piston_theta_r": 9.42477796077, "connections": [16], "volume_m3": 4.5e-4 },
+    { "id": 15, "type": "injector", "parent": 14, "connections": [16], "volume_m3": 5.5e-6 },
+    { "id": 16, "type": "piston", "piston_theta_r": 9.42477796077, "connections": [17], "volume_m3": 2.8e-4 },
+    { "id": 17, "type": "erunner", "connections": [20], "volume_m3": 1.1e-4 },
+
+    { "id": 18, "type": "eplenum", "bank": 0, "connections": [19], "volume_m3": 2.2e-4 },
+    { "id": 19, "type": "exhaust", "connections": [22], "volume_m3": 2.8e-4 },
+    { "id": 20, "type": "eplenum", "bank": 1, "connections": [21], "volume_m3": 2.2e-4 },
+    { "id": 21, "type": "exhaust", "connections": [22], "volume_m3": 2.8e-4 },
+    { "id": 22, "type": "sink", "connections": [] }
+  ]
+}
