@@ -1,0 +1,50 @@
+{
+  "engine_name": "Moto Monocilindro 250cc",
+  "sound_volume": 0.25,
+
+  "impulse_preset": "moto",
+
+  "default_pipe_length_m": 0.55,
+  "default_mic_position_ratio": 0.85,
+  "default_velocity_low_pass_hz": 4000.0,
+
+  "crankshaft": { "mass_kg": 3.5, "radius_m": 0.028 },
+  "flywheel":   { "mass_kg": 1.8, "radius_m": 0.095 },
+
+  "limiter_cutoff_r_per_s":  1260.0,
+  "limiter_relaxed_r_per_s": 30.0,
+
+  "starter": { "rated_torque_n_m": 20.0, "no_load_r_per_s": 800.0, "radius_m": 0.010 },
+
+  "piston": {
+    "diameter_m":              0.074,
+    "crank_throw_m":           0.029,
+    "connecting_rod_m":        0.110,
+    "connecting_rod_mass_kg":  0.28,
+    "compression_height_m":    0.017
+  },
+
+  "chamber_volume_m3":  1.2e-4,
+  "throttle_volume_m3": 1.5e-4,
+  "irunner_volume_m3":  2.0e-4,
+  "injector_volume_m3": 3.0e-6,
+  "erunner_volume_m3":  0.8e-4,
+  "eplenum_volume_m3":  1.0e-4,
+  "exhaust_volume_m3":  2.0e-4,
+  "max_flow_area_m2":   2.0e-3,
+
+  "nodes": [
+    { "id": 0, "type": "source",   "connections": [1],  "initial_pressure_pa": 101325, "initial_temp_k": 293 },
+    { "id": 1, "type": "throttle", "connections": [2],  "volume_m3": 1.5e-4 },
+
+    { "id": 2, "type": "irunner",  "piston_theta_r": 0.0, "connections": [4], "volume_m3": 2.0e-4 },
+    { "id": 3, "type": "injector", "parent": 2, "connections": [4], "volume_m3": 3.0e-6 },
+    { "id": 4, "type": "piston",   "piston_theta_r": 0.0, "connections": [5], "volume_m3": 1.2e-4 },
+    { "id": 5, "type": "erunner",  "connections": [6],  "volume_m3": 0.8e-4 },
+
+    { "id": 6, "type": "eplenum",  "bank": 0, "connections": [7], "volume_m3": 1.0e-4,
+      "pipe_length_m": 0.55, "mic_position_ratio": 0.85, "velocity_low_pass_hz": 4000.0 },
+    { "id": 7, "type": "exhaust",  "connections": [8],  "volume_m3": 2.0e-4 },
+    { "id": 8, "type": "sink",     "connections": [] }
+  ]
+}

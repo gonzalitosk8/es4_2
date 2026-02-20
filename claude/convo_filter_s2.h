@@ -4,10 +4,19 @@ constexpr double g_convo_filter_impulse[] = {
 
 constexpr size_t g_convo_filter_impulse_size = len(g_convo_filter_impulse);
 
-extern const double* g_active_impulse;
-extern size_t        g_active_impulse_size;
+// ──────────────────────────────────────────────────────────────────
+// Impulso activo en runtime (intercambiable sin recompilar)
+// Por defecto apunta al hardcodeado; hotreload_engine.h lo reemplaza
+// al cargar un JSON con "impulse_preset": "auto_4cil" (u otro).
+//
+// Para cambiar el impulso desde C:
+//   g_active_impulse      = mi_array;
+//   g_active_impulse_size = mi_array_size;
+// ──────────────────────────────────────────────────────────────────
+static const double* g_active_impulse      = g_convo_filter_impulse;
+static size_t        g_active_impulse_size = g_convo_filter_impulse_size;
 
-// Tama�o m�ximo del buffer circular (soporta impulsos hasta ~341 ms @ 48kHz)
+// Tamaño máximo del buffer circular (soporta impulsos hasta ~341 ms @ 48kHz)
 constexpr size_t g_convo_filter_max_size = 16384;
 
 struct convo_filter_s
@@ -22,18 +31,18 @@ filter_convo(struct convo_filter_s* self, double sample)
     // Usa g_active_impulse y g_active_impulse_size (intercambiables en runtime)
     const double* impulse = g_active_impulse;
     size_t y = g_active_impulse_size;
-    if (y == 0 || y > g_convo_filter_max_size) {
+    if(y == 0 || y > g_convo_filter_max_size) {
         return sample;  // seguridad: si no hay impulso, pasar directo
     }
 
     self->buffer[self->index] = sample;
     double result = 0;
     size_t x = y - self->index;
-    for (size_t i = 0; i < x; i++)
+    for(size_t i = 0; i < x; i++)
     {
         result += impulse[i] * self->buffer[i + self->index];
     }
-    for (size_t i = x; i < y; i++)
+    for(size_t i = x; i < y; i++)
     {
         result += impulse[i] * self->buffer[i - x];
     }

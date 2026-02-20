@@ -37,8 +37,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <math.h>
-#include "impulse_library.h"
-#include <sys/stat.h>
+
 // ─────────────────────────────────────────────────────────────
 // Límites
 // ─────────────────────────────────────────────────────────────
@@ -88,45 +87,6 @@ typedef struct {
 
     // Áreas de flujo
     double max_flow_area_m2;
-
-    // ── Acústica del tubo CFD (eplenum) ─────────────────────
-    // Defaults usados si el nodo eplenum no los sobreescribe.
-    // pipe_length_m: longitud equivalente del tubo de escape.
-    //   Determina la frecuencia de resonancia junto con la velocidad
-    //   numérica de la onda (v = dx/dt = pipe_length/(128*dt_substep)).
-    //   Para que f_fundamental ~ 150-250 Hz en un auto, usar 1.2-1.6m.
-    //   Para una moto de 1 cil, 0.4-0.6m da f ~ 450-700 Hz.
-    double default_pipe_length_m;
-    // mic_position_ratio: [0,1] donde 0=entrada del tubo, 1=extremo abierto.
-    //   0.08-0.15: sonido directo, agresivo (cerca de la fuente).
-    //   0.85-0.95: sonido irradiado, más grave y resonante (tipo escape real).
-    double default_mic_position_ratio;
-    // velocity_low_pass_cutoff_frequency_hz: suaviza la excitación antes
-    //   de entrar al CFD. Más bajo = más suave y grave. 1500-3000 para autos,
-    //   4000-7000 para motos.
-    double default_velocity_low_pass_hz;
-
-    // ── Timing de válvulas e ignición ────────────────────────
-    // Expresados en radianes relativos al TDC del pistón.
-    // Permiten variar el carácter: válvulas tempranas = más solapamiento
-    // (suena "sucio"), tardías = más limpio y agudo.
-    double irunner_valve_engage_r;    // default: -0.25π  (apertura admisión)
-    double irunner_valve_ramp_r;      // default:  1.00π  (duración rampa)
-    double piston_valve_engage_r;     // default:  2.70π  (apertura escape)
-    double piston_valve_ramp_r;       // default:  0.95π  (duración rampa)
-    double sparkplug_engage_r;        // default:  2.05π  (avance encendido)
-    double sparkplug_on_r;            // default:  0.25π  (duración chispa)
-
-    // ── Fricción / cabeza de pistón ─────────────────────────
-    double piston_head_clearance_m;   // default: 0.007m
-    double gas_damping_tau_s;         // default: 0.53e-3 s
-
-    // ── Convolución acústica configurable ───────────────────
-    // Si impulse_size > 0, se usa impulse[] en vez del hardcodeado.
-    // Permite definir la respuesta impulsional por tipo de vehículo:
-    // auto, moto, camión, etc. — sin recompilar.
-    double  impulse[16384];
-    size_t  impulse_size;             // 0 = usar convo_filter_s.h hardcodeado
 } hr_params_t;
 
 // ─────────────────────────────────────────────────────────────
@@ -143,10 +103,6 @@ typedef struct {
     double volume_m3;  // override por nodo (si está en el JSON)
     double initial_pressure_pa;
     double initial_temp_k;
-    // Per-nodo acústico (solo para eplenum; -1 = usar el default global)
-    double pipe_length_m;          // -1 = usar default_pipe_length_m
-    double mic_position_ratio;     // -1 = usar default_mic_position_ratio
-    double velocity_low_pass_hz;   // -1 = usar default_velocity_low_pass_hz
 } hr_node_desc_t;
 
 // ─────────────────────────────────────────────────────────────
@@ -210,107 +166,118 @@ static void
 hr_build_nodes(void)
 {
     hr_params_t* p = &g_hr_params;
+    double tau = HR_GAS_DAMPING_TAU_S;
     double max_a = p->max_flow_area_m2;
     double src_vol = p->source_sink_volume_m3;
-    double tau = p->gas_damping_tau_s > 0.0 ? p->gas_damping_tau_s : HR_GAS_DAMPING_TAU_S;
-
-    // Defaults acústicos: si no están en params, usar los #define originales
-    double def_pipe  = p->default_pipe_length_m      > 0.0 ? p->default_pipe_length_m      : HR_EPLENUM_PIPE_LEN_M;
-    double def_mic   = p->default_mic_position_ratio  > 0.0 ? p->default_mic_position_ratio  : HR_MIC_POS_RATIO;
-    double def_vlpf  = p->default_velocity_low_pass_hz > 0.0 ? p->default_velocity_low_pass_hz : HR_VEL_LPF_HZ;
-
-    // Defaults de timing: si no están en params, usar los #define originales
-    double ir_engage = p->irunner_valve_engage_r  != 0.0 ? p->irunner_valve_engage_r  : HR_IRUNNER_VALVE_ENGAGE_R;
-    double ir_ramp   = p->irunner_valve_ramp_r    != 0.0 ? p->irunner_valve_ramp_r    : HR_IRUNNER_VALVE_RAMP_R;
-    double pv_engage = p->piston_valve_engage_r   != 0.0 ? p->piston_valve_engage_r   : HR_PISTON_VALVE_ENGAGE_R;
-    double pv_ramp   = p->piston_valve_ramp_r     != 0.0 ? p->piston_valve_ramp_r     : HR_PISTON_VALVE_RAMP_R;
-    double sp_engage = p->sparkplug_engage_r      != 0.0 ? p->sparkplug_engage_r      : HR_SPARKPLUG_ENGAGE_R;
-    double sp_on     = p->sparkplug_on_r          != 0.0 ? p->sparkplug_on_r          : HR_SPARKPLUG_ON_R;
-
-    double head_clr  = p->piston_head_clearance_m > 0.0 ? p->piston_head_clearance_m  : HR_PISTON_HEAD_CLEARANCE_M;
 
     memset(g_hr_nodes, 0, sizeof(g_hr_nodes));
 
+    // Primero asignar wave_index a eplenums consecutivos
     int wave_idx = 0;
 
     for (int i = 0; i < g_hr_num_nodes; i++) {
         hr_node_desc_t* d = &g_hr_desc[i];
         struct node_s* n  = &g_hr_nodes[i];
 
+        // Copiar conexiones
         for (int j = 0; j < d->num_connections && j < HR_MAX_CONNECTIONS; j++) {
             n->next[j] = (uint8_t)d->connections[j];
         }
 
+        // ── Tipo de nodo ──────────────────────────────────
         if (strcmp(d->type, "source") == 0) {
             n->type = g_is_source;
-            n->as.source.chamber = hr_make_chamber(src_vol, HR_SOURCE_AREA_RATIO * max_a, tau);
+            n->as.source.chamber = hr_make_chamber(
+                src_vol,
+                HR_SOURCE_AREA_RATIO * max_a,
+                tau);
 
         } else if (strcmp(d->type, "throttle") == 0) {
             n->type = g_is_throttle;
             double vol = d->volume_m3 > 0.0 ? d->volume_m3 : p->throttle_volume_m3;
-            n->as.throttle.chamber = hr_make_chamber(vol, HR_THROTTLE_AREA_RATIO * max_a, tau);
+            n->as.throttle.chamber = hr_make_chamber(
+                vol,
+                HR_THROTTLE_AREA_RATIO * max_a,
+                tau);
 
         } else if (strcmp(d->type, "irunner") == 0) {
             n->type = g_is_irunner;
             double vol = d->volume_m3 > 0.0 ? d->volume_m3 : p->irunner_volume_m3;
-            n->as.irunner.chamber = hr_make_chamber(vol, HR_IRUNNER_AREA_RATIO * max_a, tau);
-            n->as.irunner.valve.engage_r = d->piston_theta_r + ir_engage;
-            n->as.irunner.valve.ramp_r   = ir_ramp;
+            n->as.irunner.chamber = hr_make_chamber(
+                vol,
+                HR_IRUNNER_AREA_RATIO * max_a,
+                tau);
+            n->as.irunner.valve.engage_r = d->piston_theta_r + HR_IRUNNER_VALVE_ENGAGE_R;
+            n->as.irunner.valve.ramp_r   = HR_IRUNNER_VALVE_RAMP_R;
 
         } else if (strcmp(d->type, "injector") == 0) {
             n->type = g_is_injector;
             double vol = d->volume_m3 > 0.0 ? d->volume_m3 : p->injector_volume_m3;
-            n->as.injector.chamber = hr_make_chamber(vol, HR_INJECTOR_AREA_RATIO * max_a, tau);
+            n->as.injector.chamber = hr_make_chamber(
+                vol,
+                HR_INJECTOR_AREA_RATIO * max_a,
+                tau);
+            // nozzle_index = el id del irunner "parent"
             n->as.injector.nozzle_index = (d->parent >= 0) ? (size_t)d->parent : 0;
 
         } else if (strcmp(d->type, "piston") == 0) {
             n->type = g_is_piston;
             struct piston_s* ps = &n->as.piston;
-            ps->chamber = hr_make_chamber(0.0, HR_PISTON_AREA_RATIO * max_a, tau);
-            ps->valve.engage_r     = d->piston_theta_r + pv_engage;
-            ps->valve.ramp_r       = pv_ramp;
-            ps->sparkplug.engage_r = d->piston_theta_r + sp_engage;
-            ps->sparkplug.on_r     = sp_on;
-            ps->diameter_m                   = p->piston_diameter_m;
-            ps->theta_r                      = -d->piston_theta_r;
-            ps->crank_throw_length_m         = p->piston_crank_throw_m;
-            ps->connecting_rod_length_m      = p->piston_connecting_rod_m;
-            ps->connecting_rod_mass_kg       = p->piston_connecting_rod_mass_kg;
-            ps->head_mass_density_kg_per_m3  = HR_PISTON_HEAD_DENSITY;
-            ps->head_compression_height_m    = p->piston_compression_height_m;
-            ps->head_clearance_height_m      = head_clr;
-            ps->dynamic_friction_n_m_s_per_r = HR_PISTON_DYN_FRICTION;
-            ps->static_friction_n_m_s_per_r  = HR_PISTON_STAT_FRICTION;
+            ps->chamber = hr_make_chamber(
+                0.0,    // el volumen del pistón lo calcula rig_piston()
+                HR_PISTON_AREA_RATIO * max_a,
+                tau);
+            ps->valve.engage_r = d->piston_theta_r + HR_PISTON_VALVE_ENGAGE_R;
+            ps->valve.ramp_r   = HR_PISTON_VALVE_RAMP_R;
+            ps->sparkplug.engage_r = d->piston_theta_r + HR_SPARKPLUG_ENGAGE_R;
+            ps->sparkplug.on_r     = HR_SPARKPLUG_ON_R;
+            ps->diameter_m             = p->piston_diameter_m;
+            ps->theta_r                = -d->piston_theta_r;
+            ps->crank_throw_length_m   = p->piston_crank_throw_m;
+            ps->connecting_rod_length_m= p->piston_connecting_rod_m;
+            ps->connecting_rod_mass_kg = p->piston_connecting_rod_mass_kg;
+            ps->head_mass_density_kg_per_m3 = HR_PISTON_HEAD_DENSITY;
+            ps->head_compression_height_m   = p->piston_compression_height_m;
+            ps->head_clearance_height_m     = HR_PISTON_HEAD_CLEARANCE_M;
+            ps->dynamic_friction_n_m_s_per_r= HR_PISTON_DYN_FRICTION;
+            ps->static_friction_n_m_s_per_r = HR_PISTON_STAT_FRICTION;
 
         } else if (strcmp(d->type, "erunner") == 0) {
             n->type = g_is_erunner;
             double vol = d->volume_m3 > 0.0 ? d->volume_m3 : p->erunner_volume_m3;
-            n->as.erunner.chamber = hr_make_chamber(vol, HR_ERUNNER_AREA_RATIO * max_a, tau);
+            n->as.erunner.chamber = hr_make_chamber(
+                vol,
+                HR_ERUNNER_AREA_RATIO * max_a,
+                tau);
 
         } else if (strcmp(d->type, "eplenum") == 0) {
             n->type = g_is_eplenum;
             double vol = d->volume_m3 > 0.0 ? d->volume_m3 : p->eplenum_volume_m3;
-            n->as.eplenum.chamber = hr_make_chamber(vol, HR_EPLENUM_AREA_RATIO * max_a, tau);
-            n->as.eplenum.wave_index  = (size_t)wave_idx++;
-            // Per-nodo o default global
-            n->as.eplenum.pipe_length_m = (d->pipe_length_m > 0.0)
-                ? d->pipe_length_m : def_pipe;
-            n->as.eplenum.mic_position_ratio = (d->mic_position_ratio >= 0.0)
-                ? d->mic_position_ratio : def_mic;
-            n->as.eplenum.velocity_low_pass_cutoff_frequency_hz = (d->velocity_low_pass_hz > 0.0)
-                ? d->velocity_low_pass_hz : def_vlpf;
+            n->as.eplenum.chamber = hr_make_chamber(
+                vol,
+                HR_EPLENUM_AREA_RATIO * max_a,
+                tau);
+            n->as.eplenum.wave_index            = (size_t)wave_idx++;
+            n->as.eplenum.pipe_length_m         = HR_EPLENUM_PIPE_LEN_M;
+            n->as.eplenum.mic_position_ratio    = HR_MIC_POS_RATIO;
+            n->as.eplenum.velocity_low_pass_cutoff_frequency_hz = HR_VEL_LPF_HZ;
 
         } else if (strcmp(d->type, "exhaust") == 0) {
             n->type = g_is_exhaust;
             double vol = d->volume_m3 > 0.0 ? d->volume_m3 : p->exhaust_volume_m3;
-            n->as.exhaust.chamber = hr_make_chamber(vol, HR_EXHAUST_AREA_RATIO * max_a, tau);
+            n->as.exhaust.chamber = hr_make_chamber(
+                vol,
+                HR_EXHAUST_AREA_RATIO * max_a,
+                tau);
 
         } else if (strcmp(d->type, "sink") == 0) {
             n->type = g_is_sink;
-            n->as.sink.chamber = hr_make_chamber(src_vol, 0.0, tau);
+            n->as.sink.chamber = hr_make_chamber(
+                src_vol, 0.0, tau);
 
         } else {
-            fprintf(stderr, "[hr] nodo %d: tipo desconocido '%s', ignorado\n", d->id, d->type);
+            fprintf(stderr, "[hr] nodo %d: tipo desconocido '%s', ignorado\n",
+                    d->id, d->type);
         }
     }
 }
@@ -399,27 +366,6 @@ hr_parse_json(const char* filepath)
     j = cJSON_GetObjectItem(root, "exhaust_volume_m3");  if(j) p->exhaust_volume_m3  = j->valuedouble;
     j = cJSON_GetObjectItem(root, "max_flow_area_m2");   if(j) p->max_flow_area_m2   = j->valuedouble;
 
-    // ── Impulse response configurable ────────────────────────
-    // "impulse_preset": "auto_4cil"  → busca en impulse_library.h
-    // Si no está en el JSON, se mantiene lo que había (o 0 = hardcodeado)
-    j = cJSON_GetObjectItem(root, "impulse_preset");
-    if (j && j->valuestring) {
-        const impulse_preset_t* preset = find_impulse_preset(j->valuestring);
-        if (preset) {
-            size_t copy_count = preset->size;
-            if (copy_count > 16384) copy_count = 16384;
-            memcpy(p->impulse, preset->samples, copy_count * sizeof(double));
-            p->impulse_size = copy_count;
-            printf("[hr] Impulso acústico: '%s' (%zu coeficientes)\n",
-                   j->valuestring, copy_count);
-        } else {
-            printf("[hr] AVISO: impulse_preset '%s' no encontrado — usando default hardcodeado\n",
-                   j->valuestring);
-            list_impulse_presets();
-            p->impulse_size = 0;
-        }
-    }
-
     // source/sink es "infinito" — no se expone al JSON
     p->source_sink_volume_m3 = 1.00e20;
 
@@ -436,9 +382,6 @@ hr_parse_json(const char* filepath)
             hr_node_desc_t* d = &g_hr_desc[g_hr_num_nodes++];
             memset(d, 0, sizeof(*d));
             d->parent = -1;
-            d->pipe_length_m      = -1.0;
-            d->mic_position_ratio = -1.0;
-            d->velocity_low_pass_hz = -1.0;
 
             j = cJSON_GetObjectItem(nd, "id");
             if(j) d->id = j->valueint;
@@ -464,16 +407,6 @@ hr_parse_json(const char* filepath)
             j = cJSON_GetObjectItem(nd, "initial_temp_k");
             if(j) d->initial_temp_k = j->valuedouble;
 
-            // Campos acústicos per-nodo (solo para eplenum)
-            j = cJSON_GetObjectItem(nd, "pipe_length_m");
-            if(j) d->pipe_length_m = j->valuedouble;
-
-            j = cJSON_GetObjectItem(nd, "mic_position_ratio");
-            if(j) d->mic_position_ratio = j->valuedouble;
-
-            j = cJSON_GetObjectItem(nd, "velocity_low_pass_hz");
-            if(j) d->velocity_low_pass_hz = j->valuedouble;
-
             cJSON* conns = cJSON_GetObjectItem(nd, "connections");
             if (conns && cJSON_IsArray(conns)) {
                 int nc = cJSON_GetArraySize(conns);
@@ -496,29 +429,13 @@ hr_parse_json(const char* filepath)
 static bool
 hr_file_changed(const char* filepath)
 {
-    static long last_mtime = 0;
-    static long last_size = -1;
-
     FILE* f = fopen(filepath, "r");
     if (!f) return false;
-
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fclose(f);
-
-    struct stat st;
-    if (stat(filepath, &st) != 0) {
-        // si stat falla, volvemos al método viejo por seguridad
-        if (sz != last_size) {
-            last_size = sz;
-            return true;
-        }
-        return false;
-    }
-
-    if (sz != last_size || (long)st.st_mtime != last_mtime) {
-        last_size = sz;
-        last_mtime = (long)st.st_mtime;
+    if (sz != g_hr_last_filesize) {
+        g_hr_last_filesize = sz;
         return true;
     }
     return false;
@@ -559,19 +476,6 @@ hr_apply_to_engine(struct engine_s* e)
     if (g_hr_num_nodes > 0) {
         e->node = g_hr_nodes;
         e->size = (size_t)g_hr_num_nodes;
-    }
-
-    // Impulso acústico: si se cargó un preset, activarlo globalmente
-    // (g_active_impulse y g_active_impulse_size están en convo_filter_s.h)
-    if (p->impulse_size > 0) {
-        g_active_impulse      = p->impulse;
-        g_active_impulse_size = p->impulse_size;
-        printf("[hr] Impulso activo: %zu coeficientes (%.1f ms)\n",
-               p->impulse_size, (double)p->impulse_size / 48000.0 * 1000.0);
-    } else {
-        // Restaurar default hardcodeado
-        g_active_impulse      = g_convo_filter_impulse;
-        g_active_impulse_size = g_convo_filter_impulse_size;
     }
 
     // Throttle presets (valores razonables fijos; se pueden exponer si se quiere)
@@ -621,6 +525,8 @@ hr_tick(struct engine_s* e)
 {
     if (!hr_file_changed(g_hr_filepath)) return false;
 
+    // Pequeña pausa para dejar que el editor termine de escribir
+    // (en Windows/WSL los writes no son atómicos)
     SDL_Delay(50);
 
     if (!hr_parse_json(g_hr_filepath)) {
@@ -631,25 +537,20 @@ hr_tick(struct engine_s* e)
     hr_build_nodes();
     hr_apply_to_engine(e);
 
-    wait_for_engine_waves(e); 
-    flip_engine_waves(e);
-    reset_all_waves();
-
+    // Preservar el estado del starter/throttle que tenga el usuario
+    // (no queremos que el motor se "apague" cada vez que editamos el JSON)
     bool was_starter = e->starter.is_on;
-    bool was_ignite = e->can_ignite;
+    bool was_ignite  = e->can_ignite;
     double was_throttle = e->throttle_open_ratio;
 
     reset_engine(e);
 
-    launch_engine_waves(e);       // lanza nuevos threads con los nuevos parámetros
-
-    e->starter.is_on = was_starter;
-    e->can_ignite = was_ignite;
+    e->starter.is_on       = was_starter;
+    e->can_ignite          = was_ignite;
     e->throttle_open_ratio = was_throttle;
 
-    printf("[hr] Recargado + waves reiniciados: '%s' | vol=%.3f | nodos=%d\n",
-        g_hr_params.name, g_hr_params.sound_volume, g_hr_num_nodes);
-
+    printf("[hr] Recargado: '%s' | vol=%.3f | nodos=%d\n",
+           g_hr_params.name, g_hr_params.sound_volume, g_hr_num_nodes);
     return true;
 }
 

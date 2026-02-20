@@ -1,0 +1,2 @@
+python3 tools/wav_to_impulse.py grabacion.wav --sweep barrido.wav -o src/impulses/mi_auto.h -n mi_auto
+# luego agregar 2 líneas en impulse_library.h y crear el JSON

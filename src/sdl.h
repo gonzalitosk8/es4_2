@@ -1,7 +1,7 @@
 constexpr char g_sdl_title[] = "ensim4";
-constexpr bool g_sdl_use_full_screen = true;
-constexpr double g_sdl_xres_p = 1920.0;
-constexpr double g_sdl_yres_p = 1080.0;
+constexpr bool g_sdl_use_full_screen = false;
+constexpr double g_sdl_xres_p = 1240.0;
+constexpr double g_sdl_yres_p = 720.0;
 constexpr double g_sdl_mid_x_p = g_sdl_xres_p / 2.0;
 constexpr double g_sdl_mid_y_p = g_sdl_yres_p / 2.0;
 constexpr double g_sdl_node_w_p = 32.0;

@@ -38,7 +38,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include "impulse_library.h"
-#include <sys/stat.h>
+
 // ─────────────────────────────────────────────────────────────
 // Límites
 // ─────────────────────────────────────────────────────────────
@@ -471,7 +471,7 @@ hr_parse_json(const char* filepath)
             j = cJSON_GetObjectItem(nd, "mic_position_ratio");
             if(j) d->mic_position_ratio = j->valuedouble;
 
-            j = cJSON_GetObjectItem(nd, "velocity_low_pass_hz");
+            j = cJSON_GetObjectItem(nd, "velocity_low_pass_cutoff_frequency_hz");
             if(j) d->velocity_low_pass_hz = j->valuedouble;
 
             cJSON* conns = cJSON_GetObjectItem(nd, "connections");
@@ -496,29 +496,13 @@ hr_parse_json(const char* filepath)
 static bool
 hr_file_changed(const char* filepath)
 {
-    static long last_mtime = 0;
-    static long last_size = -1;
-
     FILE* f = fopen(filepath, "r");
     if (!f) return false;
-
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fclose(f);
-
-    struct stat st;
-    if (stat(filepath, &st) != 0) {
-        // si stat falla, volvemos al método viejo por seguridad
-        if (sz != last_size) {
-            last_size = sz;
-            return true;
-        }
-        return false;
-    }
-
-    if (sz != last_size || (long)st.st_mtime != last_mtime) {
-        last_size = sz;
-        last_mtime = (long)st.st_mtime;
+    if (sz != g_hr_last_filesize) {
+        g_hr_last_filesize = sz;
         return true;
     }
     return false;
@@ -621,6 +605,8 @@ hr_tick(struct engine_s* e)
 {
     if (!hr_file_changed(g_hr_filepath)) return false;
 
+    // Pequeña pausa para dejar que el editor termine de escribir
+    // (en Windows/WSL los writes no son atómicos)
     SDL_Delay(50);
 
     if (!hr_parse_json(g_hr_filepath)) {
@@ -631,25 +617,20 @@ hr_tick(struct engine_s* e)
     hr_build_nodes();
     hr_apply_to_engine(e);
 
-    wait_for_engine_waves(e); 
-    flip_engine_waves(e);
-    reset_all_waves();
-
+    // Preservar el estado del starter/throttle que tenga el usuario
+    // (no queremos que el motor se "apague" cada vez que editamos el JSON)
     bool was_starter = e->starter.is_on;
-    bool was_ignite = e->can_ignite;
+    bool was_ignite  = e->can_ignite;
     double was_throttle = e->throttle_open_ratio;
 
     reset_engine(e);
 
-    launch_engine_waves(e);       // lanza nuevos threads con los nuevos parámetros
-
-    e->starter.is_on = was_starter;
-    e->can_ignite = was_ignite;
+    e->starter.is_on       = was_starter;
+    e->can_ignite          = was_ignite;
     e->throttle_open_ratio = was_throttle;
 
-    printf("[hr] Recargado + waves reiniciados: '%s' | vol=%.3f | nodos=%d\n",
-        g_hr_params.name, g_hr_params.sound_volume, g_hr_num_nodes);
-
+    printf("[hr] Recargado: '%s' | vol=%.3f | nodos=%d\n",
+           g_hr_params.name, g_hr_params.sound_volume, g_hr_num_nodes);
     return true;
 }
 

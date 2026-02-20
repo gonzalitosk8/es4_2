@@ -1,0 +1,65 @@
+{
+  "engine_name": "Fiat Tipo 1.6 Aspirado",
+  "sound_volume": 0.25,
+
+  "impulse_preset": "auto_4cil",
+
+  "default_pipe_length_m": 1.40,
+  "default_mic_position_ratio": 0.90,
+  "default_velocity_low_pass_hz": 2500.0,
+
+  "crankshaft": { "mass_kg": 11.0, "radius_m": 0.040 },
+  "flywheel":   { "mass_kg": 6.5,  "radius_m": 0.160 },
+
+  "limiter_cutoff_r_per_s":  628.0,
+  "limiter_relaxed_r_per_s": 30.0,
+
+  "starter": { "rated_torque_n_m": 60.0, "no_load_r_per_s": 600.0, "radius_m": 0.013 },
+
+  "piston": {
+    "diameter_m":              0.082,
+    "crank_throw_m":           0.038,
+    "connecting_rod_m":        0.130,
+    "connecting_rod_mass_kg":  0.45,
+    "compression_height_m":    0.020
+  },
+
+  "chamber_volume_m3":  2.5e-4,
+  "throttle_volume_m3": 3.0e-4,
+  "irunner_volume_m3":  4.0e-4,
+  "injector_volume_m3": 5.0e-6,
+  "erunner_volume_m3":  1.2e-4,
+  "eplenum_volume_m3":  2.0e-4,
+  "exhaust_volume_m3":  3.0e-4,
+  "max_flow_area_m2":   3.5e-3,
+
+  "nodes": [
+    { "id": 0,  "type": "source",   "connections": [1],     "initial_pressure_pa": 101325, "initial_temp_k": 293 },
+    { "id": 1,  "type": "throttle", "connections": [2,6,10,14], "volume_m3": 3.0e-4 },
+
+    { "id": 2,  "type": "irunner",  "piston_theta_r": 0.0,           "connections": [4],  "volume_m3": 4.0e-4 },
+    { "id": 3,  "type": "injector", "parent": 2, "connections": [4], "volume_m3": 5.0e-6 },
+    { "id": 4,  "type": "piston",   "piston_theta_r": 0.0,           "connections": [5],  "volume_m3": 2.5e-4 },
+    { "id": 5,  "type": "erunner",  "connections": [18], "volume_m3": 1.2e-4 },
+
+    { "id": 6,  "type": "irunner",  "piston_theta_r": 3.14159265359, "connections": [8],  "volume_m3": 4.0e-4 },
+    { "id": 7,  "type": "injector", "parent": 6, "connections": [8], "volume_m3": 5.0e-6 },
+    { "id": 8,  "type": "piston",   "piston_theta_r": 3.14159265359, "connections": [9],  "volume_m3": 2.5e-4 },
+    { "id": 9,  "type": "erunner",  "connections": [18], "volume_m3": 1.2e-4 },
+
+    { "id": 10, "type": "irunner",  "piston_theta_r": 1.57079632679, "connections": [12], "volume_m3": 4.0e-4 },
+    { "id": 11, "type": "injector", "parent": 10, "connections": [12], "volume_m3": 5.0e-6 },
+    { "id": 12, "type": "piston",   "piston_theta_r": 1.57079632679, "connections": [13], "volume_m3": 2.5e-4 },
+    { "id": 13, "type": "erunner",  "connections": [18], "volume_m3": 1.2e-4 },
+
+    { "id": 14, "type": "irunner",  "piston_theta_r": 4.71238898038, "connections": [16], "volume_m3": 4.0e-4 },
+    { "id": 15, "type": "injector", "parent": 14, "connections": [16], "volume_m3": 5.0e-6 },
+    { "id": 16, "type": "piston",   "piston_theta_r": 4.71238898038, "connections": [17], "volume_m3": 2.5e-4 },
+    { "id": 17, "type": "erunner",  "connections": [18], "volume_m3": 1.2e-4 },
+
+    { "id": 18, "type": "eplenum",  "bank": 0, "connections": [19], "volume_m3": 2.0e-4,
+      "pipe_length_m": 1.40, "mic_position_ratio": 0.90, "velocity_low_pass_hz": 2500.0 },
+    { "id": 19, "type": "exhaust",  "connections": [20], "volume_m3": 3.0e-4 },
+    { "id": 20, "type": "sink",     "connections": [] }
+  ]
+}
